@@ -97,9 +97,8 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            transition: none;
+            transition: all 0.15s ease-in-out;
             line-height: 1;
-            transform: scale(1);
         }
 
         .tile-new {
@@ -107,7 +106,7 @@
         }
 
         .tile-merged {
-            animation: merge 0.2s ease-in-out;
+            animation: merge 0.15s ease-in-out;
         }
 
         @keyframes appear {
@@ -126,7 +125,7 @@
                 transform: scale(1);
             }
             50% {
-                transform: scale(1.2);
+                transform: scale(1.1);
             }
             100% {
                 transform: scale(1);
@@ -259,6 +258,8 @@
                 this.messageContainer = document.getElementById('game-message');
                 this.messageText = document.getElementById('message-text');
                 this.isAnimating = false;
+                this.tiles = new Map();
+                this.tileIdCounter = 0;
                 
                 this.bestScore = localStorage.getItem('bestScore') || 0;
                 this.bestScoreElement.textContent = this.bestScore;
@@ -268,7 +269,9 @@
             }
 
             init() {
-                this.grid = Array(this.size).fill().map(() => Array(this.size).fill(0));
+                this.grid = Array(this.size).fill().map(() => Array(this.size).fill(null));
+                this.tiles.clear();
+                this.tileIdCounter = 0;
                 this.score = 0;
                 this.updateScore();
                 this.clearContainer();
@@ -292,7 +295,7 @@
                 const emptyCells = [];
                 for (let row = 0; row < this.size; row++) {
                     for (let col = 0; col < this.size; col++) {
-                        if (this.grid[row][col] === 0) {
+                        if (this.grid[row][col] === null) {
                             emptyCells.push({row, col});
                         }
                     }
@@ -300,12 +303,27 @@
                 
                 if (emptyCells.length > 0) {
                     const randomCell = emptyCells[Math.floor(Math.random() * emptyCells.length)];
-                    this.grid[randomCell.row][randomCell.col] = Math.random() < 0.9 ? 2 : 4;
+                    const value = Math.random() < 0.9 ? 2 : 4;
+                    const tileId = this.tileIdCounter++;
+                    
+                    const tileData = {
+                        id: tileId,
+                        value: value,
+                        row: randomCell.row,
+                        col: randomCell.col,
+                        isNew: true,
+                        isMerged: false
+                    };
+                    
+                    this.grid[randomCell.row][randomCell.col] = tileData;
+                    this.tiles.set(tileId, tileData);
                 }
             }
 
             move(direction) {
-                const previousGrid = this.grid.map(row => [...row]);
+                if (this.isAnimating) return;
+                
+                this.clearAnimationClasses();
                 let moved = false;
 
                 if (direction === 'left') {
@@ -320,7 +338,9 @@
 
                 if (moved) {
                     this.isAnimating = true;
-                    this.animateMove(previousGrid, () => {
+                    this.updateDisplay();
+                    
+                    setTimeout(() => {
                         this.addNewTile();
                         this.updateDisplay();
                         this.isAnimating = false;
@@ -332,18 +352,25 @@
                             this.messageText.textContent = 'ゲームオーバー!';
                             this.messageContainer.classList.add('game-over');
                         }
-                    });
+                    }, 150);
                 }
             }
 
             moveLeft() {
                 let moved = false;
                 for (let row = 0; row < this.size; row++) {
-                    const filtered = this.grid[row].filter(val => val !== 0);
-                    const merged = this.merge(filtered);
-                    const newRow = merged.concat(Array(this.size - merged.length).fill(0));
+                    const rowTiles = this.grid[row].filter(tile => tile !== null);
+                    const mergedRow = this.mergeRow(rowTiles);
+                    const newRow = mergedRow.concat(Array(this.size - mergedRow.length).fill(null));
                     
-                    if (JSON.stringify(this.grid[row]) !== JSON.stringify(newRow)) {
+                    for (let col = 0; col < this.size; col++) {
+                        if (newRow[col] !== null) {
+                            newRow[col].row = row;
+                            newRow[col].col = col;
+                        }
+                    }
+                    
+                    if (!this.arraysEqual(this.grid[row], newRow)) {
                         moved = true;
                     }
                     this.grid[row] = newRow;
@@ -354,11 +381,18 @@
             moveRight() {
                 let moved = false;
                 for (let row = 0; row < this.size; row++) {
-                    const filtered = this.grid[row].filter(val => val !== 0);
-                    const merged = this.merge(filtered.reverse()).reverse();
-                    const newRow = Array(this.size - merged.length).fill(0).concat(merged);
+                    const rowTiles = this.grid[row].filter(tile => tile !== null);
+                    const mergedRow = this.mergeRow(rowTiles.reverse()).reverse();
+                    const newRow = Array(this.size - mergedRow.length).fill(null).concat(mergedRow);
                     
-                    if (JSON.stringify(this.grid[row]) !== JSON.stringify(newRow)) {
+                    for (let col = 0; col < this.size; col++) {
+                        if (newRow[col] !== null) {
+                            newRow[col].row = row;
+                            newRow[col].col = col;
+                        }
+                    }
+                    
+                    if (!this.arraysEqual(this.grid[row], newRow)) {
                         moved = true;
                     }
                     this.grid[row] = newRow;
@@ -374,14 +408,27 @@
                         column.push(this.grid[row][col]);
                     }
                     
-                    const filtered = column.filter(val => val !== 0);
-                    const merged = this.merge(filtered);
-                    const newColumn = merged.concat(Array(this.size - merged.length).fill(0));
+                    const columnTiles = column.filter(tile => tile !== null);
+                    const mergedColumn = this.mergeRow(columnTiles);
+                    const newColumn = mergedColumn.concat(Array(this.size - mergedColumn.length).fill(null));
                     
                     for (let row = 0; row < this.size; row++) {
-                        if (this.grid[row][col] !== newColumn[row]) {
-                            moved = true;
+                        if (newColumn[row] !== null) {
+                            newColumn[row].row = row;
+                            newColumn[row].col = col;
                         }
+                    }
+                    
+                    const oldColumn = [];
+                    for (let row = 0; row < this.size; row++) {
+                        oldColumn.push(this.grid[row][col]);
+                    }
+                    
+                    if (!this.arraysEqual(oldColumn, newColumn)) {
+                        moved = true;
+                    }
+                    
+                    for (let row = 0; row < this.size; row++) {
                         this.grid[row][col] = newColumn[row];
                     }
                 }
@@ -396,95 +443,76 @@
                         column.push(this.grid[row][col]);
                     }
                     
-                    const filtered = column.filter(val => val !== 0);
-                    const merged = this.merge(filtered.reverse()).reverse();
-                    const newColumn = Array(this.size - merged.length).fill(0).concat(merged);
+                    const columnTiles = column.filter(tile => tile !== null);
+                    const mergedColumn = this.mergeRow(columnTiles.reverse()).reverse();
+                    const newColumn = Array(this.size - mergedColumn.length).fill(null).concat(mergedColumn);
                     
                     for (let row = 0; row < this.size; row++) {
-                        if (this.grid[row][col] !== newColumn[row]) {
-                            moved = true;
+                        if (newColumn[row] !== null) {
+                            newColumn[row].row = row;
+                            newColumn[row].col = col;
                         }
+                    }
+                    
+                    const oldColumn = [];
+                    for (let row = 0; row < this.size; row++) {
+                        oldColumn.push(this.grid[row][col]);
+                    }
+                    
+                    if (!this.arraysEqual(oldColumn, newColumn)) {
+                        moved = true;
+                    }
+                    
+                    for (let row = 0; row < this.size; row++) {
                         this.grid[row][col] = newColumn[row];
                     }
                 }
                 return moved;
             }
 
-            merge(arr) {
+            mergeRow(tiles) {
                 const result = [];
-                for (let i = 0; i < arr.length; i++) {
-                    if (i < arr.length - 1 && arr[i] === arr[i + 1]) {
-                        result.push(arr[i] * 2);
-                        this.score += arr[i] * 2;
+                for (let i = 0; i < tiles.length; i++) {
+                    if (i < tiles.length - 1 && tiles[i].value === tiles[i + 1].value) {
+                        const mergedTile = {
+                            id: tiles[i].id,
+                            value: tiles[i].value * 2,
+                            row: tiles[i].row,
+                            col: tiles[i].col,
+                            isNew: false,
+                            isMerged: true
+                        };
+                        result.push(mergedTile);
+                        this.score += mergedTile.value;
                         this.updateScore();
+                        
+                        this.tiles.delete(tiles[i + 1].id);
+                        this.tiles.set(mergedTile.id, mergedTile);
+                        
                         i++;
                     } else {
-                        result.push(arr[i]);
+                        tiles[i].isNew = false;
+                        tiles[i].isMerged = false;
+                        result.push(tiles[i]);
                     }
                 }
                 return result;
             }
-
-            animateMove(previousGrid, callback) {
-                const movements = this.calculateMovements(previousGrid);
-                
-                this.clearContainer();
-                
-                const animationPromises = movements.map(movement => {
-                    const tile = document.createElement('div');
-                    tile.className = `tile tile-${movement.value}`;
-                    tile.textContent = movement.value;
-                    tile.style.left = `${movement.fromCol * 121.25}px`;
-                    tile.style.top = `${movement.fromRow * 121.25}px`;
-                    tile.style.transition = 'all 0.15s ease-in-out';
-                    this.tileContainer.appendChild(tile);
-
-                    return new Promise(resolve => {
-                        requestAnimationFrame(() => {
-                            tile.style.left = `${movement.toCol * 121.25}px`;
-                            tile.style.top = `${movement.toRow * 121.25}px`;
-                            setTimeout(resolve, 150);
-                        });
-                    });
-                });
-
-                Promise.all(animationPromises).then(callback);
-            }
-
-            calculateMovements(previousGrid) {
-                const movements = [];
-                const used = Array(this.size).fill().map(() => Array(this.size).fill(false));
-
-                for (let row = 0; row < this.size; row++) {
-                    for (let col = 0; col < this.size; col++) {
-                        if (previousGrid[row][col] !== 0) {
-                            const value = previousGrid[row][col];
-                            let targetRow = row;
-                            let targetCol = col;
-
-                            for (let r = 0; r < this.size; r++) {
-                                for (let c = 0; c < this.size; c++) {
-                                    if (!used[r][c] && this.grid[r][c] === value) {
-                                        used[r][c] = true;
-                                        targetRow = r;
-                                        targetCol = c;
-                                        break;
-                                    }
-                                }
-                                if (used[targetRow] && used[targetRow][targetCol]) break;
-                            }
-
-                            movements.push({
-                                value: value,
-                                fromRow: row,
-                                fromCol: col,
-                                toRow: targetRow,
-                                toCol: targetCol
-                            });
-                        }
-                    }
+            
+            arraysEqual(a, b) {
+                if (a.length !== b.length) return false;
+                for (let i = 0; i < a.length; i++) {
+                    if ((a[i] === null) !== (b[i] === null)) return false;
+                    if (a[i] !== null && b[i] !== null && a[i].id !== b[i].id) return false;
                 }
-                return movements;
+                return true;
+            }
+            
+            clearAnimationClasses() {
+                this.tiles.forEach(tile => {
+                    tile.isNew = false;
+                    tile.isMerged = false;
+                });
             }
 
             updateDisplay() {
@@ -492,22 +520,18 @@
                 
                 for (let row = 0; row < this.size; row++) {
                     for (let col = 0; col < this.size; col++) {
-                        if (this.grid[row][col] !== 0) {
+                        const tileData = this.grid[row][col];
+                        if (tileData !== null) {
                             const tile = document.createElement('div');
-                            tile.className = `tile tile-${this.grid[row][col]}`;
-                            tile.textContent = this.grid[row][col];
+                            tile.className = `tile tile-${tileData.value}`;
+                            tile.textContent = tileData.value;
                             tile.style.left = `${col * 121.25}px`;
                             tile.style.top = `${row * 121.25}px`;
                             
-                            const existingTiles = Array.from(this.tileContainer.children);
-                            const isNewTile = !existingTiles.some(existing => 
-                                existing.style.left === tile.style.left && 
-                                existing.style.top === tile.style.top &&
-                                existing.textContent === tile.textContent
-                            );
-                            
-                            if (isNewTile && existingTiles.length > 0) {
+                            if (tileData.isNew) {
                                 tile.classList.add('tile-new');
+                            } else if (tileData.isMerged) {
+                                tile.classList.add('tile-merged');
                             }
                             
                             this.tileContainer.appendChild(tile);
@@ -532,7 +556,8 @@
             checkWin() {
                 for (let row = 0; row < this.size; row++) {
                     for (let col = 0; col < this.size; col++) {
-                        if (this.grid[row][col] === 2048) {
+                        const tile = this.grid[row][col];
+                        if (tile !== null && tile.value === 2048) {
                             return true;
                         }
                     }
@@ -543,16 +568,24 @@
             checkGameOver() {
                 for (let row = 0; row < this.size; row++) {
                     for (let col = 0; col < this.size; col++) {
-                        if (this.grid[row][col] === 0) {
+                        if (this.grid[row][col] === null) {
                             return false;
                         }
                         
-                        if (col < this.size - 1 && this.grid[row][col] === this.grid[row][col + 1]) {
-                            return false;
+                        const currentTile = this.grid[row][col];
+                        
+                        if (col < this.size - 1) {
+                            const rightTile = this.grid[row][col + 1];
+                            if (rightTile !== null && currentTile.value === rightTile.value) {
+                                return false;
+                            }
                         }
                         
-                        if (row < this.size - 1 && this.grid[row][col] === this.grid[row + 1][col]) {
-                            return false;
+                        if (row < this.size - 1) {
+                            const bottomTile = this.grid[row + 1][col];
+                            if (bottomTile !== null && currentTile.value === bottomTile.value) {
+                                return false;
+                            }
                         }
                     }
                 }
