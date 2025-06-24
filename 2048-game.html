@@ -516,13 +516,29 @@
             }
 
             updateDisplay() {
-                this.clearContainer();
+                const existingTiles = this.tileContainer.querySelectorAll('.tile');
+                const existingTileMap = new Map();
+                
+                existingTiles.forEach(tile => {
+                    const id = parseInt(tile.dataset.id);
+                    existingTileMap.set(id, tile);
+                });
+                
+                const activeTileIds = new Set();
                 
                 for (let row = 0; row < this.size; row++) {
                     for (let col = 0; col < this.size; col++) {
                         const tileData = this.grid[row][col];
                         if (tileData !== null) {
-                            const tile = document.createElement('div');
+                            activeTileIds.add(tileData.id);
+                            let tile = existingTileMap.get(tileData.id);
+                            
+                            if (!tile) {
+                                tile = document.createElement('div');
+                                tile.dataset.id = tileData.id;
+                                this.tileContainer.appendChild(tile);
+                            }
+                            
                             tile.className = `tile tile-${tileData.value}`;
                             tile.textContent = tileData.value;
                             tile.style.left = `${col * 121.25}px`;
@@ -533,11 +549,16 @@
                             } else if (tileData.isMerged) {
                                 tile.classList.add('tile-merged');
                             }
-                            
-                            this.tileContainer.appendChild(tile);
                         }
                     }
                 }
+                
+                existingTiles.forEach(tile => {
+                    const id = parseInt(tile.dataset.id);
+                    if (!activeTileIds.has(id)) {
+                        tile.remove();
+                    }
+                });
             }
 
             clearContainer() {
