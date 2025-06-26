@@ -171,7 +171,7 @@
                     // Check for special tile effects
                     const tileColor = groundObject.material.color.getHex();
                     if (tileColor === 0x00ff88) { // Green spring tile
-                        playerVelocity.y = jumpStrength * 1.5; // Spring effect
+                        playerVelocity.y = jumpStrength * 3; // Much stronger spring effect - can reach next level
                         playSound('triangle', 660, 0.3); // Higher pitch sound
                     } else if (tileColor === 0xffff00) { // Yellow speed boost tile
                         speedBoost = 3; // 3 seconds of speed boost
