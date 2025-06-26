@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spiral Ascent 3D</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
+        #info {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 24px;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <div id="score">Score: 0</div>
+        <div id="instructions">A/D or ←/→: Move | Space: Jump | R: Restart</div>
+    </div>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.165.0/build/three.module.js"
+            }
+        }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+
+        let scene, camera, renderer, player, stairs, clock;
+        let score = 0;
+
+        let playerVelocity = new THREE.Vector3();
+        const keys = {};
+        let raycaster = new THREE.Raycaster();
+
+        document.addEventListener('keydown', (e) => keys[e.code] = true);
+        document.addEventListener('keyup', (e) => keys[e.code] = false);
+
+        let lastStairGenerated = 0;
+
+        function init() {
+            // Scene
+            scene = new THREE.Scene();
+            clock = new THREE.Clock();
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 5, 10);
+            camera.lookAt(0, 0, 0);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(5, 10, 7.5);
+            scene.add(directionalLight);
+
+            // Stairs
+            stairs = new THREE.Group();
+            scene.add(stairs);
+            generateStairs(200, 0); // Generate initial stairs
+            lastStairGenerated = 200;
+
+            // Player
+            const playerGeometry = new THREE.BoxGeometry(1, 1, 1);
+            const playerMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+            player = new THREE.Mesh(playerGeometry, playerMaterial);
+            player.position.y = 0.5;
+            player.position.x = 5; // Start on the first step
+            scene.add(player);
+
+            // Initial animation call
+            animate();
+        }
+
+        let gameOver = false;
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (gameOver) {
+                if (keys['KeyR']) {
+                    restartGame();
+                }
+                return; // Stop updates if game is over
+            }
+
+            const delta = clock.getDelta();
+            const moveSpeed = 5;
+            const jumpStrength = 7;
+            const gravity = -20;
+
+            // Apply gravity
+            playerVelocity.y += gravity * delta;
+            player.position.y += playerVelocity.y * delta;
+
+            // Collision detection
+            raycaster.set(player.position, new THREE.Vector3(0, -1, 0));
+            const intersects = raycaster.intersectObjects(stairs.children);
+            let onGround = false;
+
+            if (intersects.length > 0) {
+                const groundObject = intersects[0].object;
+                const groundHeight = groundObject.position.y + 0.1; // 0.1 is half the step height
+
+                if (player.position.y - 0.5 < groundHeight && playerVelocity.y <= 0) {
+                    player.position.y = groundHeight + 0.5;
+                    playerVelocity.y = 0;
+                    onGround = true;
+
+                    // Check for obstacle collision
+                    if (groundObject.material.color.getHex() === 0xff0000) {
+                        gameOver = true;
+                        document.getElementById('instructions').innerText = "Game Over! Press R to Restart";
+                    }
+                }
+            }
+
+            // Player angle on the spiral
+            let playerAngle = Math.atan2(player.position.z, player.position.x);
+            const playerRadius = 5; // Keep a constant radius
+
+            // Player controls
+            if (keys['KeyA'] || keys['ArrowLeft']) {
+                playerAngle -= moveSpeed * delta / playerRadius;
+            }
+            if (keys['KeyD'] || keys['ArrowRight']) {
+                playerAngle += moveSpeed * delta / playerRadius;
+            }
+            if (keys['Space'] && onGround) {
+                playerVelocity.y = jumpStrength;
+            }
+
+            player.position.x = Math.cos(playerAngle) * playerRadius;
+            player.position.z = Math.sin(playerAngle) * playerRadius;
+            player.rotation.y = -playerAngle + Math.PI / 2;
+
+            // Game over condition
+            if (player.position.y < camera.position.y - 15) {
+                document.getElementById('instructions').innerText = "Game Over! Press R to Restart";
+                gameOver = true;
+            }
+
+            // Infinite scroll
+            if (player.position.y > lastStairGenerated * 0.5 - 20) { // Generate new stairs when player is 20 units from the top
+                generateStairs(100, (lastStairGenerated + 1) * 0.5);
+                lastStairGenerated += 100;
+
+                // Remove old stairs
+                const oldStairs = stairs.children.filter(s => s.position.y < player.position.y - 50);
+                for (const stair of oldStairs) {
+                    stairs.remove(stair);
+                }
+            }
+
+            // Update score
+            score = Math.max(score, Math.floor(player.position.y));
+            document.getElementById('score').innerText = `Score: ${score}`;
+
+            // Camera follow
+            camera.position.x = player.position.x;
+            camera.position.y = player.position.y + 5;
+            camera.lookAt(player.position);
+
+            renderer.render(scene, camera);
+        }
+
+        function generateStairs(count, startY) {
+            const stepHeight = 0.5;
+            const stepRadius = 5;
+            const stepWidth = 2;
+            const angleStep = Math.PI / 8;
+
+            for (let i = 0; i < count; i++) {
+                const y = startY + i * stepHeight;
+                const angle = i * angleStep;
+
+                const geometry = new THREE.BoxGeometry(stepWidth, 0.2, stepWidth);
+                let material;
+
+                // Add obstacles (red blocks)
+                if (Math.random() < 0.1 && y > 10) { // Don't spawn obstacles at the beginning
+                    material = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+                    // This could be a trigger for a trap in the future
+                } else {
+                    material = new THREE.MeshStandardMaterial({ color: 0x888888 });
+                }
+
+                const step = new THREE.Mesh(geometry, material);
+
+                step.position.set(
+                    Math.cos(angle) * stepRadius,
+                    y,
+                    Math.sin(angle) * stepRadius
+                );
+                step.rotation.y = -angle;
+                stairs.add(step);
+            }
+        }
+
+        function restartGame() {
+            // Reset variables
+            score = 0;
+            gameOver = false;
+            playerVelocity.set(0, 0, 0);
+            player.position.set(5, 0.5, 0);
+            lastStairGenerated = 200;
+
+            // Reset UI
+            document.getElementById('score').innerText = "Score: 0";
+            document.getElementById('instructions').innerText = "A/D or ←/→: Move | Space: Jump | R: Restart";
+
+            // Clear and regenerate stairs
+            while(stairs.children.length > 0){
+                stairs.remove(stairs.children[0]);
+            }
+            generateStairs(200, 0);
+        }
+
+        init();
+    </script>
+</body>
+</html>
