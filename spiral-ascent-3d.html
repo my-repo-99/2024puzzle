@@ -21,6 +21,7 @@
 <body>
     <div id="info">
         <div id="score">Score: 0</div>
+        <div id="highscore">High Score: 0</div>
         <div id="instructions">A/D or ←/→: Move | Space: Jump | R: Restart</div>
     </div>
     <script type="importmap">
@@ -33,8 +34,9 @@
     <script type="module">
         import * as THREE from 'three';
 
-        let scene, camera, renderer, player, stairs, clock;
+        let scene, camera, renderer, player, stairs, clock, particleSystem, starfield, audioListener, jumpSound, landSound, gameOverSound;
         let score = 0;
+        let highScore = 0;
 
         let playerVelocity = new THREE.Vector3();
         const keys = {};
@@ -83,9 +85,34 @@
 
             // Initial animation call
             animate();
+
+            // Load high score
+            highScore = localStorage.getItem('spiralAscentHighScore') || 0;
+            document.getElementById('highscore').innerText = `High Score: ${highScore}`;
+
+            // Audio
+            audioListener = new THREE.AudioListener();
+            camera.add(audioListener);
+        }
+
+        function playSound(type, frequency, duration) {
+            if (!audioListener) return;
+            const audioContext = audioListener.context;
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            oscillator.connect(gainNode);
+            gainNode.connect(audioListener.getInput());
+
+            oscillator.type = type;
+            oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+            gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.00001, audioContext.currentTime + duration);
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + duration);
         }
 
         let gameOver = false;
+        let wasOnGround = false;
 
         function animate() {
             requestAnimationFrame(animate);
@@ -120,10 +147,13 @@
                     playerVelocity.y = 0;
                     onGround = true;
 
+                    if (!wasOnGround) {
+                        playSound('sine', 220, 0.1);
+                    }
+
                     // Check for obstacle collision
                     if (groundObject.material.color.getHex() === 0xff0000) {
-                        gameOver = true;
-                        document.getElementById('instructions').innerText = "Game Over! Press R to Restart";
+                        endGame();
                     }
                 }
             }
@@ -141,6 +171,7 @@
             }
             if (keys['Space'] && onGround) {
                 playerVelocity.y = jumpStrength;
+                playSound('triangle', 440, 0.2);
             }
 
             player.position.x = Math.cos(playerAngle) * playerRadius;
@@ -149,8 +180,7 @@
 
             // Game over condition
             if (player.position.y < camera.position.y - 15) {
-                document.getElementById('instructions').innerText = "Game Over! Press R to Restart";
-                gameOver = true;
+                endGame();
             }
 
             // Infinite scroll
@@ -175,6 +205,8 @@
             camera.lookAt(player.position);
 
             renderer.render(scene, camera);
+
+            wasOnGround = onGround;
         }
 
         function generateStairs(count, startY) {
@@ -216,6 +248,7 @@
             gameOver = false;
             playerVelocity.set(0, 0, 0);
             player.position.set(5, 0.5, 0);
+            player.visible = true;
             lastStairGenerated = 200;
 
             // Reset UI
@@ -227,6 +260,59 @@
                 stairs.remove(stairs.children[0]);
             }
             generateStairs(200, 0);
+
+            // Remove particles
+            if (particleSystem) {
+                scene.remove(particleSystem);
+                particleSystem = null;
+            }
+        }
+
+        function endGame() {
+            gameOver = true;
+            document.getElementById('instructions').innerText = "Game Over! Press R to Restart";
+
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('spiralAscentHighScore', highScore);
+                document.getElementById('highscore').innerText = `High Score: ${highScore}`;
+            }
+
+            createParticleSystem(player.position);
+            player.visible = false; // Hide player on game over
+            playSound('sawtooth', 110, 0.5);
+        }
+
+        function createParticleSystem(position) {
+            const particleCount = 100;
+            const particles = new THREE.BufferGeometry();
+            const pMaterial = new THREE.PointsMaterial({
+                color: 0xFFFFFF,
+                size: 0.2,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.7
+            });
+
+            const vertices = [];
+            const colors = [];
+
+            for (let i = 0; i < particleCount; i++) {
+                const x = position.x + (Math.random() - 0.5) * 2;
+                const y = position.y + (Math.random() - 0.5) * 2;
+                const z = position.z + (Math.random() - 0.5) * 2;
+                vertices.push(x, y, z);
+
+                const color = new THREE.Color();
+                color.setHSL(Math.random(), 1.0, 0.5);
+                colors.push(color.r, color.g, color.b);
+            }
+
+            particles.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            particles.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+            particleSystem = new THREE.Points(particles, pMaterial);
+            scene.add(particleSystem);
         }
 
         init();
