@@ -41,6 +41,10 @@
         let playerVelocity = new THREE.Vector3();
         const keys = {};
         let raycaster = new THREE.Raycaster();
+        
+        let speedBoost = 0;
+        let slowEffect = 0;
+        let iceEffect = 0;
 
         document.addEventListener('keydown', (e) => keys[e.code] = true);
         document.addEventListener('keyup', (e) => keys[e.code] = false);
@@ -125,9 +129,22 @@
             }
 
             const delta = clock.getDelta();
-            const moveSpeed = 5;
+            let moveSpeed = 5;
             const jumpStrength = 7;
             const gravity = -20;
+            
+            // Update effects
+            if (speedBoost > 0) {
+                speedBoost -= delta;
+                moveSpeed *= 2;
+            }
+            if (slowEffect > 0) {
+                slowEffect -= delta;
+                moveSpeed *= 0.5;
+            }
+            if (iceEffect > 0) {
+                iceEffect -= delta;
+            }
 
             // Apply gravity
             playerVelocity.y += gravity * delta;
@@ -151,9 +168,20 @@
                         playSound('sine', 220, 0.1);
                     }
 
-                    // Check for obstacle collision
-                    if (groundObject.material.color.getHex() === 0xff0000) {
-                        endGame();
+                    // Check for special tile effects
+                    const tileColor = groundObject.material.color.getHex();
+                    if (tileColor === 0x00ff88) { // Green spring tile
+                        playerVelocity.y = jumpStrength * 1.5; // Spring effect
+                        playSound('triangle', 660, 0.3); // Higher pitch sound
+                    } else if (tileColor === 0xffff00) { // Yellow speed boost tile
+                        speedBoost = 3; // 3 seconds of speed boost
+                        playSound('sine', 880, 0.2);
+                    } else if (tileColor === 0x8800ff) { // Purple slow tile
+                        slowEffect = 3; // 3 seconds of slow effect
+                        playSound('sine', 110, 0.2);
+                    } else if (tileColor === 0x00ffff) { // Cyan ice tile
+                        iceEffect = 5; // 5 seconds of ice effect
+                        playSound('triangle', 1320, 0.15);
                     }
                 }
             }
@@ -163,11 +191,21 @@
             const playerRadius = 5; // Keep a constant radius
 
             // Player controls
+            let angleChange = 0;
             if (keys['KeyA'] || keys['ArrowLeft']) {
-                playerAngle -= moveSpeed * delta / playerRadius;
+                angleChange -= moveSpeed * delta / playerRadius;
             }
             if (keys['KeyD'] || keys['ArrowRight']) {
-                playerAngle += moveSpeed * delta / playerRadius;
+                angleChange += moveSpeed * delta / playerRadius;
+            }
+            
+            if (iceEffect > 0) {
+                // Ice effect - sliding momentum
+                if (Math.abs(angleChange) > 0) {
+                    playerAngle += angleChange * 1.5; // More sliding
+                }
+            } else {
+                playerAngle += angleChange;
             }
             if (keys['Space'] && onGround) {
                 playerVelocity.y = jumpStrength;
@@ -222,10 +260,16 @@
                 const geometry = new THREE.BoxGeometry(stepWidth, 0.2, stepWidth);
                 let material;
 
-                // Add obstacles (red blocks)
-                if (Math.random() < 0.1 && y > 10) { // Don't spawn obstacles at the beginning
-                    material = new THREE.MeshStandardMaterial({ color: 0xff0000 });
-                    // This could be a trigger for a trap in the future
+                // Add special tiles
+                const rand = Math.random();
+                if (rand < 0.15 && y > 20) { // Spring tiles (green)
+                    material = new THREE.MeshStandardMaterial({ color: 0x00ff88 });
+                } else if (rand < 0.18 && y > 30) { // Speed boost tiles (yellow)
+                    material = new THREE.MeshStandardMaterial({ color: 0xffff00 });
+                } else if (rand < 0.21 && y > 40) { // Slow tiles (purple)
+                    material = new THREE.MeshStandardMaterial({ color: 0x8800ff });
+                } else if (rand < 0.24 && y > 50) { // Ice tiles (cyan)
+                    material = new THREE.MeshStandardMaterial({ color: 0x00ffff });
                 } else {
                     material = new THREE.MeshStandardMaterial({ color: 0x888888 });
                 }
@@ -250,6 +294,9 @@
             player.position.set(5, 0.5, 0);
             player.visible = true;
             lastStairGenerated = 200;
+            speedBoost = 0;
+            slowEffect = 0;
+            iceEffect = 0;
 
             // Reset UI
             document.getElementById('score').innerText = "Score: 0";
